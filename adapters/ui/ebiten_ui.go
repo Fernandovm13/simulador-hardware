@@ -25,6 +25,7 @@ type EbitenUI struct {
 	usbSimulator    ports.USBSimulator
 	mqttConnected   bool
 	time            float64
+	images          *imageCache
 }
 
 // NewEbitenUI crea una nueva interfaz Ebiten
@@ -33,6 +34,7 @@ func NewEbitenUI(esp32s []ports.ESP32Simulator, usb ports.USBSimulator, mqttConn
 		esp32Simulators: esp32s,
 		usbSimulator:    usb,
 		mqttConnected:   mqttConnected,
+		images:          newImageCache(),
 	}
 }
 
@@ -369,6 +371,53 @@ func (ui *EbitenUI) drawPIRSensor(screen *ebiten.Image, x, y float32, reading do
 
 // drawCamera dibuja la webcam
 func (ui *EbitenUI) drawCamera(screen *ebiten.Image, x, y float32, reading domain.CameraReading) {
+	// Si hay una ImageURL, pedir carga (no bloqueante)
+	if reading.ImageURL != "" && ui.images != nil {
+		// solicitar carga (la función es no-blocking y tiene control interno)
+		ui.images.Load(reading.ImageURL)
+	}
+
+	// rectángulo donde mostraremos la imagen (coincide con el icono actual)
+	imgX := x + 5
+	imgY := y + 5
+	imgW := float32(45)
+	imgH := float32(40)
+
+	// Si la imagen ya está en cache, dibujarla escalada al rectángulo
+	if reading.ImageURL != "" && ui.images != nil {
+		if img, ok := ui.images.Get(reading.ImageURL); ok && img != nil {
+			// Escalar imagen para que quepa en imgW x imgH manteniendo aspecto
+			w := float64(img.Bounds().Dx())
+			h := float64(img.Bounds().Dy())
+			if w > 0 && h > 0 {
+				scaleX := imgW / float32(w)
+				scaleY := imgH / float32(h)
+				scale := float32(scaleX)
+				if scaleY < scaleX {
+					scale = float32(scaleY)
+				}
+				op := &ebiten.DrawImageOptions{}
+				op.GeoM.Scale(float64(scale), float64(scale))
+				// centrar en el rect
+				tx := float64(imgX) + (float64(imgW)-float64(w)*float64(scale))/2.0
+				ty := float64(imgY) + (float64(imgH)-float64(h)*float64(scale))/2.0
+				op.GeoM.Translate(tx, ty)
+				screen.DrawImage(img, op)
+				// Dibujar un borde sutil alrededor
+				vector.StrokeRect(screen, imgX, imgY, imgW, imgH, 1, color.RGBA{80, 80, 90, 180}, false)
+				// dibujar estado y return (ya mostramos la foto)
+				status := "REC!"
+				if !reading.PhotoTaken {
+					status = "Wait"
+				}
+				ebitenutil.DebugPrintAt(screen, "CAM", int(x+10), int(y+52))
+				ebitenutil.DebugPrintAt(screen, status, int(x+10), int(y+65))
+				return
+			}
+		}
+	}
+
+	// Si no hay imagen en cache, dibujar el icono habitual
 	vector.DrawFilledRect(screen, x+5, y+5, 45, 40, color.RGBA{30, 30, 35, 255}, false)
 	vector.StrokeRect(screen, x+5, y+5, 45, 40, 2, color.RGBA{100, 100, 120, 255}, false)
 

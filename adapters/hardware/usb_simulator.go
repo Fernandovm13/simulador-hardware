@@ -1,6 +1,8 @@
 package hardware
 
 import (
+	"fmt"
+	"log"
 	"math/rand"
 	"sync"
 	"time"
@@ -13,7 +15,7 @@ import (
 type USBHardwareSimulator struct {
 	publisher  ports.DataPublisher
 	stopChan   chan struct{}
-	motionChan chan bool // Canal para Pipeline 
+	motionChan chan bool
 	mu         sync.RWMutex
 	lastMotion domain.MotionReading
 	lastCamera domain.CameraReading
@@ -24,7 +26,7 @@ func NewUSBSimulator(publisher ports.DataPublisher) *USBHardwareSimulator {
 	return &USBHardwareSimulator{
 		publisher:  publisher,
 		stopChan:   make(chan struct{}),
-		motionChan: make(chan bool, 10), // Buffer de 10 
+		motionChan: make(chan bool, 10), // Buffer de 10
 	}
 }
 
@@ -71,7 +73,9 @@ func (s *USBHardwareSimulator) simulatePIRSensor() {
 
 			// Publicar a MQTT
 			if s.publisher != nil && s.publisher.IsConnected() {
-				s.publisher.Publish("vigiltech/sensors/usb/motion", reading)
+				if err := s.publisher.Publish("vigiltech/sensors/usb/motion", reading); err != nil {
+					log.Printf("ERROR publishing motion reading: %v", err)
+				}
 			}
 		}
 	}
@@ -97,33 +101,47 @@ func (s *USBHardwareSimulator) simulateWebcam() {
 			var reading domain.CameraReading
 
 			// Procesar solo si hay movimiento detectado
-			if lastMotion {
-				humanDetected := rand.Float64() > 0.5
-				reading = domain.CameraReading{
-					SensorID:      "USB-WEBCAM-RPi",
-					Location:      "usb_direct",
-					HumanDetected: humanDetected,
-					PhotoTaken:    humanDetected,
-					Timestamp:     time.Now(),
-				}
-			} else {
-				reading = domain.CameraReading{
-					SensorID:      "USB-WEBCAM-RPi",
-					Location:      "usb_direct",
-					HumanDetected: false,
-					PhotoTaken:    false,
-					Timestamp:     time.Now(),
-				}
-			}
+if lastMotion {
+    humanDetected := rand.Float64() > 0.2
+    var url string
+    if humanDetected {
+        // Genera URL pública de prueba (picsum.photos). Seed único para variar.
+        url = fmt.Sprintf("https://picsum.photos/seed/%d/640/480", time.Now().UnixNano())
+    }
+
+    reading = domain.CameraReading{
+        SensorID:      "USB-WEBCAM-RPi",
+        Location:      "usb_direct",
+        HumanDetected: humanDetected,
+        PhotoTaken:    humanDetected,
+        ImageURL:      url,
+        Timestamp:     time.Now(),
+    }
+} else {
+    // Sin movimiento → no debe haber foto ni persona detectada
+    reading = domain.CameraReading{
+        SensorID:      "USB-WEBCAM-RPi",
+        Location:      "usb_direct",
+        HumanDetected: false,
+        PhotoTaken:    false,
+        ImageURL:      "",
+        Timestamp:     time.Now(),
+    }
+}
 
 			// Actualizar estado interno
 			s.mu.Lock()
 			s.lastCamera = reading
 			s.mu.Unlock()
 
-			// Publicar a MQTT
+			// Publicar a MQTT (con logging)
 			if s.publisher != nil && s.publisher.IsConnected() {
-				s.publisher.Publish("vigiltech/sensors/usb/camera", reading)
+				log.Printf("Publishing camera reading: sensor=%s photo_taken=%v human_detected=%v image_url=%q",
+					reading.SensorID, reading.PhotoTaken, reading.HumanDetected, reading.ImageURL)
+
+				if err := s.publisher.Publish("vigiltech/sensors/usb/camera", reading); err != nil {
+					log.Printf("ERROR publishing camera reading: %v", err)
+				}
 			}
 		}
 	}

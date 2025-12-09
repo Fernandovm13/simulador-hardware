@@ -61,14 +61,20 @@ func (p *MQTTPublisher) Publish(topic string, payload interface{}) error {
 	// Serializar payload a JSON
 	data, err := json.Marshal(payload)
 	if err != nil {
+		log.Printf("MQTT marshal error topic=%s: %v", topic, err)
 		return err
 	}
 
 	// Publicar con QoS 1
 	token := p.client.Publish(topic, 1, false, data)
 	token.Wait()
+	if token.Error() != nil {
+		log.Printf("MQTT publish error topic=%s: %v", topic, token.Error())
+		return token.Error()
+	}
 
-	return token.Error()
+	log.Printf("MQTT published topic=%s len=%d", topic, len(data))
+	return nil
 }
 
 // IsConnected verifica si está conectado

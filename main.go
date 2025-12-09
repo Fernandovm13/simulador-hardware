@@ -16,7 +16,7 @@ import (
 
 // Configuración
 const (
-	MQTT_BROKER  = "tcp://localhost:1883"
+	MQTT_BROKER  = "tcp://52.45.244.182:1883"
 	MQTT_ENABLED = true 
 	NUM_MESAS    = 4
 )

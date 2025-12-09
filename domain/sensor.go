@@ -35,6 +35,7 @@ type CameraReading struct {
 	Location      string    `json:"location"`
 	HumanDetected bool      `json:"human_detected"`
 	PhotoTaken    bool      `json:"photo_taken"`
+	ImageURL      string    `json:"image_url,omitempty"`
 	Timestamp     time.Time `json:"timestamp"`
 }
 
