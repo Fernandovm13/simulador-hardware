@@ -6,11 +6,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"simulador-hard/domain"
 	"simulador-hard/ports"
 )
 
-//implementa el simulador de ESP32
 type ESP32HardwareSimulator struct {
 	mesaID       int
 	publisher    ports.DataPublisher
@@ -20,7 +20,6 @@ type ESP32HardwareSimulator struct {
 	lastParticle domain.ParticleReading
 }
 
-//crea un nuevo simulador ESP32
 func NewESP32Simulator(mesaID int, publisher ports.DataPublisher) *ESP32HardwareSimulator {
 	return &ESP32HardwareSimulator{
 		mesaID:    mesaID,
@@ -29,16 +28,11 @@ func NewESP32Simulator(mesaID int, publisher ports.DataPublisher) *ESP32Hardware
 	}
 }
 
-//inicia la simulación del ESP32
 func (s *ESP32HardwareSimulator) Start() {
-	// Goroutine 1: Sensor de Gas
 	go s.simulateGasSensor()
-
-	// Goroutine 2: Sensor de Partículas
 	go s.simulateParticleSensor()
 }
 
-//simula el sensor MQ-135
 func (s *ESP32HardwareSimulator) simulateGasSensor() {
 	ticker := time.NewTicker(1800 * time.Millisecond)
 	defer ticker.Stop()
@@ -47,30 +41,39 @@ func (s *ESP32HardwareSimulator) simulateGasSensor() {
 		select {
 		case <-s.stopChan:
 			return
-		case <-ticker.C:		
-			baseLevel := 200.0 + rand.Float64()*300
-			spike := 0.0
+		case <-ticker.C:
+			baseLPG := 150.0 + rand.Float64()*250
+			baseCO := 100.0 + rand.Float64()*200
+			baseSmoke := 120.0 + rand.Float64()*230
+
 			if rand.Float64() > 0.85 {
-				spike = rand.Float64() * 400
+				spikeType := rand.Intn(3)
+				spike := rand.Float64() * 400
+
+				switch spikeType {
+				case 0:
+					baseLPG += spike
+				case 1:
+					baseCO += spike
+				case 2:
+					baseSmoke += spike
+				}
 			}
 
-			level := baseLevel + spike
-			alert := level > 700
-
 			reading := domain.GasReading{
+				ID:        uuid.New().String(),  // Generar UUID
 				SensorID:  fmt.Sprintf("ESP32-MESA-%d-GAS", s.mesaID),
-				MesaID:    s.mesaID,
-				Level:     level,
-				Alert:     alert,
+				SystemID:  s.mesaID,
+				LPG:       baseLPG,
+				CO:        baseCO,
+				Smoke:     baseSmoke,
 				Timestamp: time.Now(),
 			}
 
-			// Actualizar estado interno
 			s.mu.Lock()
 			s.lastGas = reading
 			s.mu.Unlock()
 
-			// Publicar a MQTT
 			if s.publisher != nil && s.publisher.IsConnected() {
 				topic := fmt.Sprintf("vigiltech/sensors/mesa%d/gas", s.mesaID)
 				s.publisher.Publish(topic, reading)
@@ -79,7 +82,6 @@ func (s *ESP32HardwareSimulator) simulateGasSensor() {
 	}
 }
 
-//simula el sensor PMS5003
 func (s *ESP32HardwareSimulator) simulateParticleSensor() {
 	ticker := time.NewTicker(2200 * time.Millisecond)
 	defer ticker.Stop()
@@ -89,30 +91,31 @@ func (s *ESP32HardwareSimulator) simulateParticleSensor() {
 		case <-s.stopChan:
 			return
 		case <-ticker.C:
-			// Generar lectura de partículas
-			pm25 := 15.0 + rand.Float64()*60
+			pm10 := 10.0 + rand.Float64()*50
+			pm25 := pm10 + 5.0 + rand.Float64()*30
+			pm100 := pm25 + 10.0 + rand.Float64()*35
+
 			if rand.Float64() > 0.8 {
-				pm25 += rand.Float64() * 30
+				contaminationFactor := 1.5 + rand.Float64()*1.5
+				pm10 *= contaminationFactor
+				pm25 *= contaminationFactor
+				pm100 *= contaminationFactor
 			}
 
-			pm10 := pm25 + rand.Float64()*25 + 10
-			alert := pm25 > 75
-
 			reading := domain.ParticleReading{
+				ID:        uuid.New().String(),  // Generar UUID
 				SensorID:  fmt.Sprintf("ESP32-MESA-%d-PM", s.mesaID),
-				MesaID:    s.mesaID,
-				PM25:      pm25,
+				SystemID:  s.mesaID,
 				PM10:      pm10,
-				Alert:     alert,
+				PM25:      pm25,
+				PM100:     pm100,
 				Timestamp: time.Now(),
 			}
 
-			// Actualizar estado interno
 			s.mu.Lock()
 			s.lastParticle = reading
 			s.mu.Unlock()
 
-			// Publicar a MQTT
 			if s.publisher != nil && s.publisher.IsConnected() {
 				topic := fmt.Sprintf("vigiltech/sensors/mesa%d/particles", s.mesaID)
 				s.publisher.Publish(topic, reading)
@@ -121,12 +124,10 @@ func (s *ESP32HardwareSimulator) simulateParticleSensor() {
 	}
 }
 
-//detiene la simulación
 func (s *ESP32HardwareSimulator) Stop() {
 	close(s.stopChan)
 }
 
-//retorna el estado actual
 func (s *ESP32HardwareSimulator) GetState() interface{} {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -138,19 +139,16 @@ func (s *ESP32HardwareSimulator) GetState() interface{} {
 	}
 }
 
-//retorna el ID de la mesa
 func (s *ESP32HardwareSimulator) GetMesaID() int {
 	return s.mesaID
 }
 
-//retorna la última lectura de gas
 func (s *ESP32HardwareSimulator) GetGasReading() domain.GasReading {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.lastGas
 }
 
-//retorna la última lectura de partículas
 func (s *ESP32HardwareSimulator) GetParticleReading() domain.ParticleReading {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
